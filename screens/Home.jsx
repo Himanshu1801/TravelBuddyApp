@@ -1,49 +1,70 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { View, Button, Text, Image, TouchableOpacity, StyleSheet } from 'react-native';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import auth from '@react-native-firebase/auth';
 import firestore from '@react-native-firebase/firestore';
 import Card from '../components/Card';
 
-
 const HomeScreen = ({ navigation }) => {
+
+  const [cards, setCards] = useState([]);
+  const [currentChecklist, setCurrentChecklist] = useState('personal');
 
   const getData = async () => {
     const user = auth().currentUser;
-    console.log('User data:', user.displayName, user.photoURL);
-  };
 
+    // Check if user document exists in Firestore
+    const userChecklistRef = await firestore().collection('users').doc(user.uid).collection('checklists');
+
+    const checklistSnapshot = await userChecklistRef.get();
+    const userCards = checklistSnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+
+    setCards(userCards);
+
+  };
 
   useEffect(() => {
     getData();
-  }, [])
+  }, []);
 
 
-  const [cards, setCards] = useState([
-    { title: 'Untitled', type: '' },
-  ]);
-  const [currentChecklist, setCurrentChecklist] = useState('personal');
-
-  const addNewCard = () => {
+  const addNewCard = async () => {
     const newCard = { title: 'Untitled', type: currentChecklist };
-    setCards([...cards, newCard]);
+
+    // Add new card to Firestore
+    const checklistRef = await firestore().collection('users').doc(auth().currentUser.uid)
+      .collection('checklists').add({
+        title: newCard.title,
+        type: newCard.type,
+        items: [],
+        sharedWith: [],
+      });
+
+    setCards((prevCards) => [...prevCards, { ...newCard, id: checklistRef.id }]);
+  };
+
+  const deleteCard = async (index) => {
+    const cardToDelete = cards[index];
+
+    // Delete card from Firestore
+    await firestore().collection('users').doc(auth().currentUser.uid)
+      .collection('checklists').where('title', '==', cardToDelete.title).get()
+      .then(querySnapshot => {
+        querySnapshot.forEach(doc => {
+          doc.ref.delete();
+        });
+      });
+
+    setCards((prevCards) => {
+      const updatedCards = prevCards.filter((card) => card.type === currentChecklist);
+      updatedCards.splice(index, 1);
+      const newCards = prevCards.filter((card) => card.type !== currentChecklist).concat(updatedCards);
+      return newCards;
+    });
   };
 
   const toggleChecklist = (type) => {
     setCurrentChecklist(type);
-  };
-
-  const deleteCard = (index) => {
-    // console.log('deleteCard', index);
-    // alert(`Deleting card number ${index + 1}`);
-    setCards((prevCards) => {
-      const updatedCards = prevCards.filter((card) => card.type === currentChecklist);
-      updatedCards.splice(index, 1);
-
-      const newCards = prevCards.filter((card) => card.type !== currentChecklist).concat(updatedCards);
-
-      return newCards;
-    });
   };
 
   const signOut = async () => {
@@ -51,12 +72,19 @@ const HomeScreen = ({ navigation }) => {
       await GoogleSignin.revokeAccess();
       await GoogleSignin.signOut();
       await auth().signOut();
-      navigation.navigate('SignIn'); // Redirect to the sign-in screen after signing out
+      navigation.navigate('SignIn');
     } catch (error) {
       console.error('Sign Out Error: ', error);
     }
   };
 
+  const updateCallback = useCallback(() => {
+    getData();
+  }, []);
+
+  const openChecklist = (title, type, items) => {
+    navigation.navigate('Checklist', { title: title, type: type, items: items, updateCallback });
+  };
 
 
 
@@ -103,7 +131,7 @@ const HomeScreen = ({ navigation }) => {
             <Card
               key={index}
               title={card.title}
-              onPress={() => navigation.navigate('Checklist', { title: card.title })}
+              onPress={() => openChecklist(card.title, card.type, card.items)}
               onDelete={() => deleteCard(index)}
             />
           ))}

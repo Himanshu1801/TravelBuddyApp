@@ -1,19 +1,31 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Modal } from 'react-native';
 import CheckBox from '@react-native-community/checkbox';
-import { useNavigation } from '@react-navigation/native';
+import firestore from '@react-native-firebase/firestore';
+import auth from '@react-native-firebase/auth';
 
-const ChecklistScreen = () => {
-  const navigation = useNavigation();
 
-  const [title, setTitle] = useState('New Checklist');
-  const [items, setItems] = useState([{ text: '', checked: null }]);
+const ChecklistScreen = ({ route, navigation }) => {
+  // console.log('Checklist route:', route.params)
+  const [title, setTitle] = useState(route.params.title || 'New Checklist');
+  const [items, setItems] = useState(route.params.items || []);
   const [newItemText, setNewItemText] = useState('');
+  const [isTitleModalVisible, setTitleModalVisible] = useState(false);
+  const [isItemTextModalVisible, setItemTextModalVisible] = useState(false);
+  const [editIndex, setEditIndex] = useState(null);
 
   useEffect(() => {
-    // This effect will run when the component mounts
-    // You can use it to load data or perform other actions
-  }, []); // Empty dependency array means this effect runs once
+    setTitle(title);
+  }, [title]);
+
+  const toggleTitleModal = () => {
+    setTitleModalVisible(!isTitleModalVisible);
+  };
+
+  const toggleItemTextModal = (index) => {
+    setEditIndex(index);
+    setItemTextModalVisible(!isItemTextModalVisible);
+  };
 
   const handleItemCheck = (index) => {
     const updatedItems = [...items];
@@ -29,36 +41,71 @@ const ChecklistScreen = () => {
     }
   };
 
-  const saveChanges = () => {
-    // You can save the changes here, e.g., update a database or store in state
-    // For demonstration purposes, we'll just log the changes
-    console.log("Title:", title);
-    console.log("Items:", items);
+  const updateItemText = () => {
+    const updatedItems = [...items];
+    updatedItems[editIndex].text = newItemText;
+    setItems(updatedItems);
+    setItemTextModalVisible(false);
+    setEditIndex(null);
+  };
 
-    // After saving, navigate back to the home page
+  const deleteItem = () => {
+    const updatedItems = [...items];
+    updatedItems.splice(editIndex, 1);
+    setItems(updatedItems);
+    setItemTextModalVisible(false);
+    setEditIndex(null);
+  };
+
+  const saveChanges = async () => {
+    const user = auth().currentUser;
+    const { type } = route.params;
+    console.log('title: ', title);
+    await firestore().collection('users').doc(user.uid)
+      .collection('checklists').doc(title).set({
+        title: title,
+        type: type || 'personal',
+        items: items,
+        sharedWith: [],
+      });
+
+    // console.log('Saving changes:', title, type, items);
+    // console.log('Saved changes');
+    if (route.params.updateCallback) {
+      route.params.updateCallback();
+    }
     navigation.goBack();
   };
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>{title}</Text>
-      <TextInput
-        style={styles.input}
-        value={title}
-        onChangeText={(text) => setTitle(text)}
-        placeholder="Enter checklist title"
-      />
+      <TouchableOpacity onPress={toggleTitleModal}>
+        <Text style={styles.title}>{title}</Text>
+      </TouchableOpacity>
+
+      <Modal visible={isTitleModalVisible} animationType="slide" transparent>
+        <View style={styles.modalContainer}>
+          <TextInput
+            style={styles.input}
+            value={title}
+            onChangeText={(text) => setTitle(text)}
+            placeholder="Edit checklist title"
+          />
+          <TouchableOpacity style={styles.editButton} onPress={toggleTitleModal}>
+            <Text style={styles.buttonText}>Save</Text>
+          </TouchableOpacity>
+        </View>
+      </Modal>
 
       <ScrollView style={styles.itemsContainer}>
         {items.map((item, index) => (
           <View key={index} style={styles.itemContainer}>
-            {item.checked !== null && (
-              <CheckBox
-                value={item.checked}
-                onValueChange={() => handleItemCheck(index)}
-              />
-            )}
-            <Text style={styles.itemText}>{item.text}</Text>
+            <TouchableOpacity onPress={() => toggleItemTextModal(index)}>
+              {item.checked !== null && (
+                <CheckBox value={item.checked} onValueChange={() => handleItemCheck(index)} />
+              )}
+              <Text style={styles.itemText}>{item.text}</Text>
+            </TouchableOpacity>
           </View>
         ))}
       </ScrollView>
@@ -78,6 +125,24 @@ const ChecklistScreen = () => {
       <TouchableOpacity style={styles.saveButton} onPress={saveChanges}>
         <Text style={styles.buttonText}>Save</Text>
       </TouchableOpacity>
+
+      <Modal visible={isItemTextModalVisible} animationType="slide" transparent>
+        <View style={styles.modalContainer}>
+          <TextInput
+            style={styles.input}
+            value={newItemText}
+            onChangeText={(text) => setNewItemText(text)}
+            placeholder="Edit item text"
+          />
+          <TouchableOpacity style={styles.editButton} onPress={updateItemText}>
+            <Text style={styles.buttonText}>Save</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.deleteButton} onPress={deleteItem}>
+            <Text style={styles.buttonText}>Delete</Text>
+          </TouchableOpacity>
+        </View>
+      </Modal>
+
     </View>
   );
 };
@@ -132,6 +197,24 @@ const styles = StyleSheet.create({
   buttonText: {
     color: 'black',
     fontWeight: 'bold',
+  },
+  modalContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  editButton: {
+    backgroundColor: 'lightgrey',
+    padding: 10,
+    borderRadius: 5,
+    marginVertical: 5,
+  },
+  deleteButton: {
+    backgroundColor: 'red',
+    padding: 10,
+    borderRadius: 5,
+    marginVertical: 5,
   },
 });
 
