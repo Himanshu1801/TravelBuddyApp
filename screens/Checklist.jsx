@@ -13,10 +13,80 @@ const ChecklistScreen = ({ route, navigation }) => {
   const [isTitleModalVisible, setTitleModalVisible] = useState(false);
   const [isItemTextModalVisible, setItemTextModalVisible] = useState(false);
   const [editIndex, setEditIndex] = useState(null);
+  const [collaborators, setCollaborators] = useState([]);
+  const [collaboratorEmail, setCollaboratorEmail] = useState('');
 
   useEffect(() => {
     setTitle(title);
   }, [title]);
+
+  useEffect(() => {
+    if (route.params.type === 'shared') {
+      loadCollaborators();
+    }
+  }, []);
+
+  const loadCollaborators = async () => {
+    try {
+      const user = auth().currentUser;
+      const checklistRef = firestore()
+        .collection('users')
+        .doc(user.uid)
+        .collection('checklists')
+        .doc(title);
+
+      const checklistSnapshot = await checklistRef.get();
+
+      if (checklistSnapshot.exists) {
+        const checklistData = checklistSnapshot.data();
+        setCollaborators(checklistData.sharedWith || []);
+      }
+    } catch (error) {
+      console.error('Error loading collaborators:', error);
+    }
+  };
+
+  const addCollaborator = async () => {
+    try {
+      const user = auth().currentUser;
+      const checklistRef = firestore()
+        .collection('users')
+        .doc(user.uid)
+        .collection('checklists')
+        .doc(title);
+
+      await checklistRef.update({
+        sharedWith: firestore.FieldValue.arrayUnion(collaboratorEmail),
+      });
+
+      // Refresh collaborators list
+      loadCollaborators();
+
+      
+    } catch (error) {
+      console.error('Error adding collaborator:', error);
+    }
+  };
+
+  const removeCollaborator = async (email) => {
+    try {
+      const user = auth().currentUser;
+      const checklistRef = firestore()
+        .collection('users')
+        .doc(user.uid)
+        .collection('checklists')
+        .doc(title);
+
+      await checklistRef.update({
+        sharedWith: firestore.FieldValue.arrayRemove(email),
+      });
+
+      // Refresh collaborators list
+      loadCollaborators();
+    } catch (error) {
+      console.error('Error removing collaborator:', error);
+    }
+  };
 
   const toggleTitleModal = () => {
     setTitleModalVisible(!isTitleModalVisible);
@@ -66,7 +136,7 @@ const ChecklistScreen = ({ route, navigation }) => {
         title: title,
         type: type || 'personal',
         items: items,
-        sharedWith: [],
+        sharedWith: collaborators,
       });
 
     // console.log('Saving changes:', title, type, items);
@@ -82,6 +152,30 @@ const ChecklistScreen = ({ route, navigation }) => {
       <TouchableOpacity onPress={toggleTitleModal}>
         <Text style={styles.title}>{title}</Text>
       </TouchableOpacity>
+
+      {route.params.type === 'shared' && (
+        <View>
+          {/* Collaborators UI */}
+          <Text style={{ color: 'black', fontSize: 18 }}>Collaborators:</Text>
+          {collaborators.map((collaborator, index) => (
+            <View key={index}>
+              <Text style={{ color: 'black' }}>{collaborator}</Text>
+              <TouchableOpacity onPress={() => removeCollaborator(collaborator)}>
+                <Text style={{ color: 'red' }}>Remove</Text>
+              </TouchableOpacity>
+            </View>
+          ))}
+          <TextInput
+            style={styles.input}
+            placeholder="Enter collaborator email"
+            onChangeText={(text) => setCollaboratorEmail(text)}
+          />
+          <TouchableOpacity style={styles.addButton} onPress={addCollaborator}>
+            <Text style={styles.buttonText}>Add Collaborator</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
 
       <Modal visible={isTitleModalVisible} animationType="slide" transparent>
         <View style={styles.modalContainer}>
@@ -156,6 +250,7 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
     marginBottom: 10,
+    color: 'black'
   },
   input: {
     height: 40,
